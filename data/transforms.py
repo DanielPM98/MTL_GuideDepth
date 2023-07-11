@@ -81,7 +81,7 @@ class ToTensor(object):
             If test, move image to [0,1] and depth to [0, 10]
             """
             image = np.array(image).astype(np.float32) / 255.0
-            depth = np.array(depth).astype(np.float32) #/ self.maxDepth #Why / maxDepth?
+            depth = np.array(depth).astype(np.float32)
             label = np.array(label).astype(np.float32)
             image, depth, label = transformation(image), transformation(depth), transformation(label)
         else:
@@ -90,15 +90,19 @@ class ToTensor(object):
             depth = np.array(depth).astype(np.float32)
             label = np.array(label).astype(np.float32)
 
-            #For train use DepthNorm
+
+            #For train use DepthNorm 
             zero_mask = depth == 0.0
             image, depth, label = transformation(image), transformation(depth), transformation(label)
+
+            # print('Depth before, min: {} max: {}'.format(depth.min(), depth.max()))
             depth = torch.clamp(depth, self.maxDepth/100.0, self.maxDepth)
-            depth = self.maxDepth / depth
+
+            depth = self.maxDepth / depth # Adjust for distance parameters TODO: EXPLAIN CORRECTLY
             depth[:, zero_mask] = 0.0
 
-        #print('Depth after, min: {} max: {}'.format(depth.min(), depth.max()))
-        #print('Image, min: {} max: {}'.format(image.min(), image.max()))
+        # print('Depth after, min: {} max: {}'.format(depth.min(), depth.max()))
+        # print('Image, min: {} max: {}'.format(image.min(), image.max()))
 
         image = torch.clamp(image, 0.0, 1.0)
         return {'image': image, 'depth': depth, 'label': label}

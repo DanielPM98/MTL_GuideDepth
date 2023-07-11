@@ -7,9 +7,11 @@ from torch.utils import data
 import matplotlib.pyplot as plt
 from torchvision import transforms
 
+import os
 
 import data.transforms as T
 
+# TODO: IMPLEMENT SOME WAY TO GET THE NUMBER OF CLASSES
 
 resolution_dict = {
     'full' : (480, 640),
@@ -17,75 +19,47 @@ resolution_dict = {
     'mini' : (224, 224)
     }
 
-class Nyuv2Dataset(data.Dataset):
-    def __init__(self, 
-                 root,
-                 top_labels:list = None, 
-                 transform=None, 
-                 normalize=False, 
-                 depth_norm=10.0):
-        """
-            Description:
-                root <str>: path to the NYU dataset file (.mat)
-        """
-        self.top_labels = top_labels
+
+class NYUv2Dataset(data.Dataset):
+    def __init__(self, root: str, split: str, transform=None):
+        self.root = os.path.join(root, split)
+
+        for r, _, files in os.walk(self.root):
+            if r.endswith('depth'):
+                self.depth_paths = list(map(lambda x: os.path.join(r, x), files))
+            elif r.endswith('image'):
+                self.image_paths = list(map(lambda x: os.path.join(r, x), files))
+            elif r.endswith('label'):
+                self.label_paths = list(map(lambda x: os.path.join(r, x), files))
+
         self.transform = transform
 
-        # image normalization parameters
-        mean = [0.485, 0.456, 0.406]
-        std = [0.229, 0.224, 0.225]
-        self.normalize = transforms.Normalize(mean, std) if normalize else None
-
-        # Train depth in range [0, 10]
-        self.depth_norm = depth_norm
-
-        # Open .mat as an h5 object
-        self.h5_obj = h5py.File(root, mode='r')
-
-        # Load desired data
-        self.images = self.h5_obj['images'] # RGB images
-        self.depths = self.h5_obj['depths'] # depths [0, 10]
-        self.labels = self.h5_obj['labels'] # Semantic class mask for each image
-        self.names = self.h5_obj['names'] # Semantic class names
-        # self.instances = self.h5_obj['instances'] # instances
-        # self.namesToIds = self.h5_obj['namesToIds']
-
-        print('[INFO] Dataset Loaded: NYU')
-
-    def add_transform(self, new_transform):
-        self.transform = new_transform
+        print(f'[INFO] Dataset Loaded: NYUv2 ({split})')
 
     def __len__(self):
-        return len(self.images)
+        return len(self.image_paths)
     
     def __getitem__(self, index):
-        image = cv2.rotate(self.images[index].transpose(1,2,0), cv2.ROTATE_90_CLOCKWISE) # rgb image
-        image = Image.fromarray(image, mode='RGB')
-        depth = cv2.rotate(self.depths[index], cv2.ROTATE_90_CLOCKWISE) # depth map
-        label = cv2.rotate(self.labels[index], cv2.ROTATE_90_CLOCKWISE).astype(np.float32) # semantic segmentation
+        image = np.load(self.image_paths[index]) # RGB image (288, 384, 3)
+        depth = np.load(self.depth_paths[index]) # Depth ground truth [0, 10] (288, 384, 1)
+        label = np.load(self.label_paths[index]) # Segmentation map (288, 384)
 
-        # reduce number of labels by placing them in uncategorized class
-        if self.top_labels:
-            for lbl in np.unique(label).astype(int):
-                if lbl not in self.top_labels:
-                    label[label == lbl] = 0
-
-        sample = {
-            'image': image,
-            'depth': depth,
-            'label': label
-        }
-
-        # Apply the transformations
-        if self.transform:
+        sample = {'image': image,
+                  'depth': depth.reshape((288,384)),    # Transform to shape (288, 384)
+                  'label': label}
+        
+        if self.transform is not None:
             sample = self.transform(sample)
-
-        if self.normalize:
-            sample['image'] = self.normalize(sample['image'])
-            sample['depth'] = sample['depth'] / depth
-
-        return sample  # returns dict with image, depth and label (segmentation)    
-
+        
+        return sample
+    
+    def __repr__(self) -> str:
+        outstr = '\n[Dataset Information]\n'
+        outstr += f'Number of images: {len(self.image_paths)} \n' 
+        outstr += f'Number of depth: {len(self.depth_paths)} \n'
+        outstr += f'Number of segmentation: {len(self.label_paths)} \n'
+        return outstr
+    
 
 def train_transformation(resolution):
     transform = transforms.Compose([
@@ -94,7 +68,7 @@ def train_transformation(resolution):
         T.RandomChannelSwap(0.5),
         T.ToTensor(test=False, maxDepth=10.0)
     ])
-    return transforms
+    return transform
 
 
 def val_transformation(resolution):
@@ -107,32 +81,17 @@ def val_transformation(resolution):
 
 def get_NYUv2_dataset(root_path, split, resolution='full'):
     resolution = resolution_dict[resolution]
-    generator = torch.Generator().manual_seed(42)
+
+    assert split in ['train', 'val', 'test'], '[ERROR] Invalid value for: split'
 
     # Get transforms
-    train_transform = train_transformation(resolution)
-    val_transform = val_transformation(resolution)
-    test_transform = transforms.ToTensor()
+    transform = train_transformation(resolution) if split == 'train' else val_transformation(resolution)
 
-    # Load dataset and split train/val/test splits
-    dataset = Nyuv2Dataset(root_path)
-    train_dataset, val_dataset, test_dataset = data.random_split(dataset, [0.64, 0.16, 0.2], generator)
+    # Load dataset corresponding to the split
+    dataset = NYUv2Dataset(root_path, split, transform= transform)
+    print(dataset)
 
-    # Add transformations
-    train_dataset.add_transform(train_transform)
-    val_dataset.add_transform(val_transform)
-    test_dataset.add_transform(test_transform)
-
-    # Return dataloader
-    if split == 'train':
-        return train_dataset
-    elif split == 'val':
-        return val_dataset
-    elif split == 'test':
-        return test_dataset
-    
-    print('[ERROR] Invalid value for: split')
-    exit(0)
+    return dataset
 
 
 

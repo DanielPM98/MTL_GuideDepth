@@ -14,12 +14,7 @@ def get_dataloader(dataset_name,
                    interpolation='linear', 
                    batch_size=8,
                    workers=4):
-    if dataset_name == 'kitti': # TODO: maybe kitti if there is time
-        pass
-        # dataset = KITTIDataset(path, 
-        #         split, 
-        #         resolution=resolution)
-    elif dataset_name == 'nyu':
+    if dataset_name == 'nyu':
         dataset = get_NYUv2_dataset(path, 
                 split, 
                 resolution=resolution)
