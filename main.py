@@ -31,7 +31,7 @@ def get_args():
     parser.add_argument('--dataset',
                         type=str,
                         help='dataset for training',
-                        choices=['kitti', 'nyu', 'nyu_reduced'],
+                        # choices=['kitti', 'nyu', 'nyu_reduced'],
                         default='nyu')
     parser.add_argument('--resolution',
                         type=str,
@@ -85,6 +85,11 @@ def get_args():
                         type=int,
                         help='step size of the scheduler',
                         default=15)
+    parser.add_argument('--strategy',
+                        type=str,
+                        choices= ['EW', 'RW'],
+                        default='EW',
+                        help= 'Weighting strategies')
 
     #System
     parser.add_argument('--num_workers',

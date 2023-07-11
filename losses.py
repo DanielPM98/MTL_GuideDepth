@@ -7,7 +7,9 @@ Transfer Learning, https://arxiv.org/abs/1812.11941, 2018
 https://github.com/ialhashim/DenseDepth
 """
 
+from typing import Any
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
 from math import exp
@@ -127,29 +129,29 @@ class Depth_Loss():
         return gauss/gauss.sum()
 
 
-class MTLoss:
-    def __init__(self, depth_loss, seg_loss, method='avg'):
-        self.depth_loss_fn = depth_loss
-        self.seg_loss_fn = seg_loss
 
-        self.method = method
+class Seg_Loss:
+    def __init__(self, num_classes):
+        self.num_classes = num_classes
+        self.loss_fn = nn.CrossEntropyLoss()
 
+    def __call__(self, pred, target):
+        """
+            Description: adaptation of CrossEntropyLoss multiclass for our data
 
-    def calculate_depth_loss(self, pred, gt):
-        self.depth_loss_value = self.depth_loss_fn(pred, gt)
+            Inputs:
+                pred <Tensor>: prediction of the model. Shape [batch_size, num_classes, w, h]
+                target <Tensor>: gt for segmentation where every value corresponds to the class label.
+                    Shape [batch_size, w, h]
+        """
+        batch_size = pred.shape[0]
+        if target.dim() == 4: # if target shape [batch_size, 1, w, h] reduce to  [batch_size, w, h]
+            target = torch.squeeze(target, dim=1)
 
+        # pred = pred.permute(0, 2, 3, 1).contiguous().view(batch_size, self.num_classes, -1)
+        print(target.shape)
+        print(pred.shape)
+        loss = self.loss_fn(pred, target.long())
+        print(loss)
 
-    def calculate_seg_loss(self, pred, gt):
-        self.seg_loss_value = self.seg_loss_fn(pred, gt)
-
-
-    def weighted_backward(self):
-        losses = torch.cat((self.depth_loss_value, self.seg_loss_value), dim=-1)
-        if self.method == 'avg':
-            loss_value = (torch.sum(losses) * 0.5)
-        elif self.method == 'random':
-            weights =  F.softmax(torch.randn(2), dim=-1).cuda()
-            loss_value = torch.sum(losses*weights)
-
-        loss_value.backward()
-        return loss_value.detach().cpu().numpy()
+        return loss

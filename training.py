@@ -4,10 +4,12 @@ import os
 import torch
 import torch.optim as optim
 import torch.nn as nn
+import torch.nn.functional as F
 
 from data import datasets
 from model import loader
-from losses import Depth_Loss, MTLoss
+from losses import Depth_Loss, Seg_Loss
+from weighting import strategies
 from metrics import AverageMeter, Result
 
 max_depths = {
@@ -47,9 +49,9 @@ class Trainer():
                                                 batch_size=args.batch_size,
                                                 resolution=args.resolution,
                                                 workers=args.num_workers)
-        
-        print(f'[INFO] Number of training images: {len(self.train_loader.dataset)}')
-        print(f'[INFO] Number of validation images: {len(self.val_loader.dataset)}')
+
+        # print(f'[INFO] Number of training images: {len(self.train_loader.dataset)}')
+        # print(f'[INFO] Number of validation images: {len(self.val_loader.dataset)}')
 
         self.optimizer = optim.Adam(self.model.parameters(),
                                args.learning_rate)
@@ -62,9 +64,9 @@ class Trainer():
         else:
             self.depth_loss_fn = Depth_Loss(1, 0, 0, maxDepth=self.maxDepth)
 
-        self.seg_loss_fn = nn.CrossEntropyLoss()
+        self.seg_loss_fn = Seg_Loss(13)
 
-        self.loss_fn = MTLoss(self.depth_loss_fn, self.seg_loss_fn, method='avg')
+        self.weighting_strategy = strategies.choose_strategy(args.strategy)
 
         #Load Checkpoint
         if args.load_checkpoint != '':
@@ -96,16 +98,27 @@ class Trainer():
 
             depth_prediction, seg_prediction = self.model(image)
 
-            # depth_loss_value = self.depth_loss_fn(depth_prediction, gt)
-            # seg_loss_value = self.seg_loss_fn(seg_prediction, label)
-            
-            # # TODO: ADJUST LOSS IN FILE TO COMPUTE ALL THIS IN CLASS
-            # loss_value = (depth_loss_value + seg_loss_value) / 2.0
-            # loss_value.backward() 
-            self.loss_fn.calculate_depth_loss(depth_prediction, gt)
-            self.loss_fn.calculate_seg_loss(seg_prediction, label)
+            print(seg_prediction)
+            # Compute each task loss individually
+            depth_loss_value = self.depth_loss_fn(depth_prediction, gt)
+            seg_loss_value = self.seg_loss_fn(seg_prediction, label)
 
-            loss_value = self.loss_fn.weighted_backward()
+            # tmp = depth_prediction.cpu().detach()
+            # print('Depth prediction, min: {} max: {}'.format(depth_prediction.min(), depth_prediction.max()))
+            # print('Depth GT, min: {} max: {}'.format(gt.min(), gt.max()))
+
+            # print(depth_loss_value)
+            # print(seg_loss_value)
+            
+            # Concatenate all losses and calculate final value given weighting strategy
+            losses = torch.cat((depth_loss_value, seg_loss_value), dim=-1)
+            loss_value = self.weighting_strategy(losses)
+            # # TODO: ADJUST LOSS IN FILE TO COMPUTE ALL THIS IN CLASS
+            # self.loss_fn.calculate_depth_loss(depth_prediction, gt)
+            # self.loss_fn.calculate_seg_loss(seg_prediction, label)
+            # loss_value = self.loss_fn.weighted_backward()
+
+            loss_value.backward() 
 
             self.optimizer.step()
 
@@ -137,16 +150,15 @@ class Trainer():
                 if self.debug and i==0:
                     self.show_images(image, gt, prediction)
 
-                # depth_loss_value = self.depth_loss_fn(inv_prediction, self.depth_norm(gt))
-                # seg_loss_value = self.seg_loss_fn(seg_prediction, label)
+                # Compute each task loss individually
+                depth_loss_value = self.depth_loss_fn(inv_prediction, self.depth_norm(gt))
+                seg_loss_value = self.seg_loss_fn(seg_prediction, label)
 
-                # loss_value = (depth_loss_value + seg_loss_value) / 2.0
-                # loss_value.backward() 
-                
-                self.loss_fn.calculate_depth_loss(inv_prediction, self.depth_norm(gt))
-                self.loss_fn.calculate_seg_loss(seg_prediction, label)
+                # Concatenate all losses and calculate final value given weighting strategy
+                losses = torch.cat((depth_loss_value, seg_loss_value), dim=-1)
+                loss_value = self.weighting_strategy(losses)
 
-                loss_value = self.loss_fn.weighted_backward()
+                loss_value.backward() 
 
                 accumulated_loss += loss_value.item()
 
@@ -259,4 +271,9 @@ class Trainer():
 
         # Create directory for saving training checkpoints
         os.makedirs(self.checkpoint_pth, exist_ok=True)
-        
+
+
+def debug(test):
+    print(test)
+    print('===== Test Passed =====')
+    exit(0)
