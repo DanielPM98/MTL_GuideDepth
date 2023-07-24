@@ -7,7 +7,6 @@ Transfer Learning, https://arxiv.org/abs/1812.11941, 2018
 https://github.com/ialhashim/DenseDepth
 """
 
-from typing import Any
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -129,11 +128,15 @@ class Depth_Loss():
         return gauss/gauss.sum()
 
 
-
 class Seg_Loss:
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, device):
         self.num_classes = num_classes
-        self.loss_fn = nn.CrossEntropyLoss()
+
+        # Assign label weights for calculating the loss. The highest number label will be ignored (in this case 14) as uncategorized
+        label_weights = torch.ones(self.num_classes).to(device)
+        label_weights[self.num_classes-1] = 0
+
+        self.loss_fn = nn.CrossEntropyLoss(ignore_index=self.num_classes, weight=label_weights)
 
     def __call__(self, pred, target):
         """
@@ -144,14 +147,18 @@ class Seg_Loss:
                 target <Tensor>: gt for segmentation where every value corresponds to the class label.
                     Shape [batch_size, w, h]
         """
-        batch_size = pred.shape[0]
-        if target.dim() == 4: # if target shape [batch_size, 1, w, h] reduce to  [batch_size, w, h]
+        # if target shape [batch_size, 1, w, h] reduce to  [batch_size, w, h]
+        if target.dim() == 4: 
             target = torch.squeeze(target, dim=1)
 
-        # pred = pred.permute(0, 2, 3, 1).contiguous().view(batch_size, self.num_classes, -1)
-        print(target.shape)
-        print(pred.shape)
+        # # Reassign label -1 of uncategorize to highest value of category (14 in this case)
+        # target[target == -1] = self.num_classes
+
+        pred = F.softmax(pred, dim=1) # Normalize the probability distribution over the 14 classes
+
+        # pred = pred.view(-1, self.num_classes)
+        # target = target.view(-1)
+
         loss = self.loss_fn(pred, target.long())
-        print(loss)
 
         return loss

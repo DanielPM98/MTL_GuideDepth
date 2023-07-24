@@ -39,6 +39,9 @@ class Evaluator():
         self.debug = True
         self.dataset = args.dataset
 
+        # Create logs for recording results
+        self.create_logs(args)
+
         self.maxDepth = max_depths[args.dataset]
         self.res_dict = resolutions[args.dataset]
         self.resolution = self.res_dict[args.resolution]
@@ -48,11 +51,7 @@ class Evaluator():
         self.crop = crops[args.dataset]
         self.eval_mode = args.eval_mode
 
-        self.result_dir = args.save_results
-        if not os.path.isdir(self.result_dir):
-            os.mkdir(self.result_dir)
-
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.model = loader.load_model(args.model, args.weights_path)
         self.model.to(self.device)
@@ -63,8 +62,7 @@ class Evaluator():
                                                  batch_size=1,
                                                  augmentation=args.eval_mode,
                                                  resolution=args.resolution,
-                                                 workers=args.num_workers,
-                                                 uncompressed= args.uncompressed)
+                                                 workers=args.num_workers)
 
         self.downscale_image = torchvision.transforms.Resize(self.resolution) #To Model resolution
 
@@ -83,16 +81,18 @@ class Evaluator():
         self.model.eval()
         average_meter = AverageMeter()
         for i, data in enumerate(self.test_loader):
+            # TODO: IMPLEMENT SEGMENTATION IN MODEL AND EVALUATION
             t0 = time.time()
-            image, gt = data
-            packed_data = {'image': image[0], 'depth':gt[0]}
+            image, depth_gt, label_gt = data
+            packed_data = {'image': image[0], 'depth':depth_gt[0], 'label': label_gt[0]}
             data = self.to_tensor(packed_data)
-            image, gt = self.unpack_and_move(data)
-            image = image.unsqueeze(0)
-            gt = gt.unsqueeze(0)
+            image, depth_gt, label_gt = self.unpack_and_move(data)
+            image = image.unsqueeze(0) # shape [channels, w, h]
+            print(depth_gt.shape)
+            depth_gt = depth_gt.unsqueeze(0) # shape [?, w, h]
 
             image_flip = torch.flip(image, [3])
-            gt_flip = torch.flip(gt, [3])
+            depth_gt_flip = torch.flip(depth_gt, [3])
             if self.eval_mode == 'alhashim':
                 # For model input
                 image = self.downscale_image(image)
@@ -111,35 +111,27 @@ class Evaluator():
             gpu_time = time.time() - t0
 
             if self.eval_mode == 'alhashim':
-                upscale_depth = torchvision.transforms.Resize(gt.shape[-2:]) #To GT res
+                upscale_depth = torchvision.transforms.Resize(depth_gt.shape[-2:]) #To GT res
 
                 prediction = upscale_depth(prediction)
                 prediction_flip = upscale_depth(prediction_flip)
 
-                if self.dataset == 'kitti':
-
-
-                    gt_height, gt_width = gt.shape[-2:] 
-
-                    self.crop = np.array([0.3324324 * gt_height,  0.91351351 * gt_height,
-                                          0.0359477 * gt_width,   0.96405229 * gt_width]).astype(np.int32)
-
                 if i in self.visualize_images:
-                    self.save_image_results(image, gt, prediction, i)
+                    self.save_image_results(image, depth_gt, prediction, i)
 
-                gt = gt[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
-                gt_flip = gt_flip[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
+                gt = depth_gt[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
+                gt_flip = depth_gt_flip[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
                 prediction = prediction[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
                 prediction_flip = prediction_flip[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
 
-
+            # TODO: IMPLEMENT RESULTS FOR SEGEMENTATION
 
             result = Result()
-            result.evaluate(prediction.data, gt.data)
+            result.evaluate_depth(prediction.data, depth_gt.data)
             average_meter.update(result, gpu_time, data_time, image.size(0))
 
             result_flip = Result()
-            result_flip.evaluate(prediction_flip.data, gt_flip.data)
+            result_flip.evaluate(prediction_flip.data, depth_gt_flip.data)
             average_meter.update(result_flip, gpu_time, data_time, image.size(0))
 
         #Report 
@@ -158,7 +150,7 @@ class Evaluator():
               average=avg, time=avg.gpu_time))
 
     def save_results(self, average):
-        results_file = os.path.join(self.result_dir, 'results.txt')
+        results_file = os.path.join(self.results_pth, 'results.txt')
         with open(results_file, 'w') as f:
             f.write('RMSE,MAE,REL, RMSE_log,Lg10,Delta1,Delta2,Delta3\n')
             f.write('{average.rmse:.3f}'
@@ -188,13 +180,27 @@ class Evaluator():
         if isinstance(data, (tuple, list)):
             image = data[0].to(self.device, non_blocking=True)
             gt = data[1].to(self.device, non_blocking=True)
-            return image, gt
+            label = data[2].to(self.device, non_blocking=True)
+
+            return image, gt, label
+        
         if isinstance(data, dict):
-            keys = data.keys()
             image = data['image'].to(self.device, non_blocking=True)
             gt = data['depth'].to(self.device, non_blocking=True)
-            return image, gt
+            label = data['label'].to(self.device, non_blocking=True)
+
+            return image, gt, label
+        
         print('Type not supported')
+        exit(0)
+
+    def create_logs(self, args):
+        name = os.path.join(args.save_results, f'{args.model}_results')
+        self.results_pth = os.path.join(name, 'test')
+
+        # Create directory for training results output
+        os.makedirs(self.results_pth, exist_ok=True)
+
 
     def save_image_results(self, image, gt, prediction, image_id):
         img = image[0].permute(1, 2, 0).cpu()
@@ -208,7 +214,7 @@ class Evaluator():
         vmax = torch.max(gt[gt != 0.0])
         vmin = torch.min(gt[gt != 0.0])
 
-        save_to_dir = os.path.join(self.result_dir, 'image_{}.png'.format(image_id))
+        save_to_dir = os.path.join(self.results_pth, 'image_{}.png'.format(image_id))
         fig = plt.figure(frameon=False)
         ax = plt.Axes(fig, [0., 0., 1., 1.])
         ax.set_axis_off()
@@ -217,7 +223,7 @@ class Evaluator():
         fig.savefig(save_to_dir)
         plt.clf()
 
-        save_to_dir = os.path.join(self.result_dir, 'errors_{}.png'.format(image_id))
+        save_to_dir = os.path.join(self.results_pth, 'errors_{}.png'.format(image_id))
         fig = plt.figure(frameon=False)
         ax = plt.Axes(fig, [0., 0., 1., 1.])
         ax.set_axis_off()
@@ -227,7 +233,7 @@ class Evaluator():
         fig.savefig(save_to_dir)
         plt.clf()
 
-        save_to_dir = os.path.join(self.result_dir, 'gt_{}.png'.format(image_id))
+        save_to_dir = os.path.join(self.results_pth, 'gt_{}.png'.format(image_id))
         fig = plt.figure(frameon=False)
         ax = plt.Axes(fig, [0., 0., 1., 1.])
         ax.set_axis_off()
@@ -236,7 +242,7 @@ class Evaluator():
         fig.savefig(save_to_dir)
         plt.clf()
 
-        save_to_dir = os.path.join(self.result_dir, 'depth_{}.png'.format(image_id))
+        save_to_dir = os.path.join(self.results_pth, 'depth_{}.png'.format(image_id))
         fig = plt.figure(frameon=False)
         ax = plt.Axes(fig, [0., 0., 1., 1.])
         ax.set_axis_off()

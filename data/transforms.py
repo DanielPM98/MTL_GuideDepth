@@ -63,6 +63,7 @@ class RandomChannelSwap(object):
         if random.random() < self.probability:
             image = np.asarray(image)
             image = Image.fromarray(image[...,list(self.indices[random.randint(0, len(self.indices) - 1)])])
+
         return {'image': image, 'depth': depth, 'label': label}
 
 
@@ -133,13 +134,14 @@ class Resize(object):
     """
     def __init__(self, output_resolution):
         self.resize = transforms.Resize(output_resolution)
+        self.resize_labels = transforms.Resize(output_resolution, interpolation=transforms.InterpolationMode.NEAREST)
 
     def __call__(self, sample):
         image, depth, label = unpack_ndarray(sample)
 
         image = self.resize(image)
         depth = self.resize(depth)
-        label = self.resize(label)
+        label = self.resize_labels(label)
 
         return {'image': image, 'depth': depth, 'label': label}
 

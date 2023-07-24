@@ -50,9 +50,6 @@ class Trainer():
                                                 resolution=args.resolution,
                                                 workers=args.num_workers)
 
-        # print(f'[INFO] Number of training images: {len(self.train_loader.dataset)}')
-        # print(f'[INFO] Number of validation images: {len(self.val_loader.dataset)}')
-
         self.optimizer = optim.Adam(self.model.parameters(),
                                args.learning_rate)
         self.lr_scheduler = optim.lr_scheduler.StepLR(self.optimizer,
@@ -64,7 +61,7 @@ class Trainer():
         else:
             self.depth_loss_fn = Depth_Loss(1, 0, 0, maxDepth=self.maxDepth)
 
-        self.seg_loss_fn = Seg_Loss(13)
+        self.seg_loss_fn = Seg_Loss(self.train_loader.dataset.num_classes, device=self.device)
 
         self.weighting_strategy = strategies.choose_strategy(args.strategy)
 
@@ -98,25 +95,12 @@ class Trainer():
 
             depth_prediction, seg_prediction = self.model(image)
 
-            print(seg_prediction)
             # Compute each task loss individually
             depth_loss_value = self.depth_loss_fn(depth_prediction, gt)
             seg_loss_value = self.seg_loss_fn(seg_prediction, label)
 
-            # tmp = depth_prediction.cpu().detach()
-            # print('Depth prediction, min: {} max: {}'.format(depth_prediction.min(), depth_prediction.max()))
-            # print('Depth GT, min: {} max: {}'.format(gt.min(), gt.max()))
-
-            # print(depth_loss_value)
-            # print(seg_loss_value)
-            
-            # Concatenate all losses and calculate final value given weighting strategy
-            losses = torch.cat((depth_loss_value, seg_loss_value), dim=-1)
-            loss_value = self.weighting_strategy(losses)
-            # # TODO: ADJUST LOSS IN FILE TO COMPUTE ALL THIS IN CLASS
-            # self.loss_fn.calculate_depth_loss(depth_prediction, gt)
-            # self.loss_fn.calculate_seg_loss(seg_prediction, label)
-            # loss_value = self.loss_fn.weighted_backward()
+            # Compute weighted loss
+            loss_value = self.weighting_strategy([depth_loss_value, seg_loss_value])
 
             loss_value.backward() 
 
@@ -126,7 +110,7 @@ class Trainer():
 
         #Report 
         current_time = time.strftime('%H:%M', time.localtime())
-        average_loss = accumulated_loss / (len(self.train_loader.dataset) + 1)
+        average_loss = accumulated_loss / (len(self.train_loader.dataset))
         print('{} - Average Training Loss: {:3.4f}'.format(current_time, average_loss))
 
 
@@ -143,45 +127,48 @@ class Trainer():
                 data_time = time.time() - t0
 
                 t0 = time.time()
-                inv_prediction, seg_prediction = self.model(image)
-                prediction = self.inverse_depth_norm(inv_prediction)
+                inv_depth_prediction, seg_prediction = self.model(image)
+                depth_prediction = self.inverse_depth_norm(inv_depth_prediction)
+
                 gpu_time = time.time() - t0
 
                 if self.debug and i==0:
-                    self.show_images(image, gt, prediction)
+                    self.show_images_depth(image, gt, depth_prediction)
+                    self.show_images_seg(image, label, seg_prediction)
 
                 # Compute each task loss individually
-                depth_loss_value = self.depth_loss_fn(inv_prediction, self.depth_norm(gt))
+                depth_loss_value = self.depth_loss_fn(inv_depth_prediction, self.depth_norm(gt))
                 seg_loss_value = self.seg_loss_fn(seg_prediction, label)
 
-                # Concatenate all losses and calculate final value given weighting strategy
-                losses = torch.cat((depth_loss_value, seg_loss_value), dim=-1)
-                loss_value = self.weighting_strategy(losses)
-
-                loss_value.backward() 
+                # Compute weighted loss
+                loss_value = self.weighting_strategy([depth_loss_value, seg_loss_value])
 
                 accumulated_loss += loss_value.item()
 
                 result = Result()
-                result.evaluate(prediction.data, gt.data)
+                result.evaluate_depth(depth_prediction.data, gt.data)
+                result.evaluate_segmentation(seg_prediction.data, label.data)
                 average_meter.update(result, gpu_time, data_time, image.size(0))
 
         #Report 
         avg = average_meter.average()
         current_time = time.strftime('%H:%M', time.localtime())
-        average_loss = accumulated_loss / (len(self.val_loader.dataset) + 1)
+        average_loss = accumulated_loss / (len(self.val_loader.dataset))
         self.val_losses.append(average_loss)
         print('{} - Average Validation Loss: {:3.4f}'.format(current_time, average_loss))
 
         print('\n*\n'
-              'RMSE={average.rmse:.3f}\n'
-              'MAE={average.mae:.3f}\n'
-              'Delta1={average.delta1:.3f}\n'
-              'Delta2={average.delta2:.3f}\n'
-              'Delta3={average.delta3:.3f}\n'
-              'REL={average.absrel:.3f}\n'
-              'Lg10={average.lg10:.3f}\n'
-              't_GPU={time:.3f}\n'.format(
+              'RMSE = {average.rmse:.3f}\n'
+              'MAE = {average.mae:.3f}\n'
+              'Delta1 = {average.delta1:.3f}\n'
+              'Delta2 = {average.delta2:.3f}\n'
+              'Delta3 = {average.delta3:.3f}\n'
+              'REL = {average.absrel:.3f}\n'
+              'Lg10 = {average.lg10:.3f}\n'
+              '\nMean IoU = {average.mIoU:.3f}\n'
+              'MAE = {average.mMAE:.3f}\n'
+              'Pixel Accuracy = {average.px_acc}\n\n'
+              't_GPU = {time:.3f}\n'.format(
               average=avg, time=avg.gpu_time))
 
 
@@ -219,6 +206,7 @@ class Trainer():
         torch.save(checkpoint['model'], best_model_pth)
         print('Model saved.')
 
+
     def inverse_depth_norm(self, depth):
         zero_mask = depth == 0.0
         depth = self.maxDepth / depth
@@ -240,17 +228,26 @@ class Trainer():
             image = data[0].to(self.device, non_blocking=True)
             gt = data[1].to(self.device, non_blocking=True)
             label = data[2].to(self.device, non_blocking=True)
+
+            if label.dim() == 4: 
+                label = torch.squeeze(label, dim=1)
+
             return image, gt, label
+        
         if isinstance(data, dict):
             image = data['image'].to(self.device, non_blocking=True)
             gt = data['depth'].to(self.device, non_blocking=True)
             label = data['label'].to(self.device, non_blocking=True)
 
+            if label.dim() == 4: 
+                label = torch.squeeze(label, dim=1)
+
             return image, gt, label
+        
         print('Type not supported')
         exit(0)
 
-    def show_images(self, image, gt, pred):
+    def show_images_depth(self, image, gt, pred):
         import matplotlib.pyplot as plt
         image_np = image[0].cpu().permute(1, 2, 0).numpy()
         gt[0, 0, gt[0,0] == 100.0] = 0.1
@@ -260,6 +257,32 @@ class Trainer():
         plt.show()
         plt.imshow(pred[0, 0].detach().cpu())
         plt.show()
+
+    def show_images_seg(self, image, target, pred):
+        import matplotlib.pyplot as plt
+        image_np = image[0].cpu().permute(1,2,0).numpy()
+        pred_np = pred[0].cpu().numpy()
+        target_np = target[0].cpu().numpy()
+
+        # Get number of classes
+        num_classes = pred_np.shape[1]
+
+        # Create color map for classes
+        cmap = plt.get_cmap('tab20', num_classes)
+
+        # Plot target segmentation
+        fig, ax = plt.subplots()
+        ax.imshow(image_np.squeeze())
+
+        fig, ax = plt.subplots()
+        ax.imshow(target_np.squeeze(), cmap=cmap, vmin=0, vmax=num_classes-1)
+
+        # Plot prediction segmentation
+        fig, ax = plt.subplots()
+        ax.imshow(pred_np.argmax(axis=1).squeeze(), cmap=cmap, vmin=0, vmax=num_classes-1)
+
+        plt.show()
+        
 
     def create_logs(self, args):
         name = os.path.join(args.save_results, f'{args.model}_results')
