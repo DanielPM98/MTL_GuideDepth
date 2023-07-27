@@ -8,7 +8,6 @@ import random
 def _is_pil_image(img):
     return isinstance(img, Image.Image)
 
-
 def _is_numpy_image(img):
     return isinstance(img, np.ndarray) and (img.ndim in {2, 3})
 
@@ -74,7 +73,7 @@ class ToTensor(object):
         self.maxDepth = maxDepth
 
     def __call__(self, sample):
-        image, depth, label = unpack(sample)
+        image, depth, label = unpack_ndarray(sample)
         transformation = transforms.ToTensor()
 
         if self.test:
@@ -138,7 +137,7 @@ class Resize(object):
 
     def __call__(self, sample):
         image, depth, label = unpack_ndarray(sample)
-
+        
         image = self.resize(image)
         depth = self.resize(depth)
         label = self.resize_labels(label)
@@ -174,7 +173,7 @@ def unpack(sample):
 def unpack_ndarray(sample):
     image, depth, label = unpack(sample)
     if _is_ndarray(image):
-        image = Image.fromarray(np.uint8(image))
+        image = Image.fromarray(np.uint8(image*255))
     if  _is_ndarray(depth):
         depth = Image.fromarray(depth)
     if  _is_ndarray(label):

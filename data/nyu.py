@@ -11,7 +11,6 @@ import os
 
 import data.transforms as T
 
-# TODO: IMPLEMENT SOME WAY TO GET THE NUMBER OF CLASSES
 
 resolution_dict = {
     'full' : (480, 640),

@@ -1,16 +1,18 @@
-import time
 import os
+import time
+import pickle
 
 import torch
-import torch.optim as optim
 import torch.nn as nn
+import torch.optim as optim
+import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
-from data import datasets
 from model import loader
-from losses import Depth_Loss, Seg_Loss
+from data import datasets
 from weighting import strategies
 from metrics import AverageMeter, Result
+from losses import Depth_Loss, Seg_Loss
 
 max_depths = {
     'kitti': 80.0,
@@ -69,6 +71,8 @@ class Trainer():
         if args.load_checkpoint != '':
             self.load_checkpoint(args.load_checkpoint)
 
+        self.metric_history = []
+
     def train(self):
         torch.cuda.empty_cache()
         self.start_time = time.time()
@@ -84,6 +88,7 @@ class Trainer():
             self.save_checkpoint()
 
         self.save_model()
+        self.save_results()
 
     def train_loop(self):
         self.model.train()
@@ -94,6 +99,9 @@ class Trainer():
             self.optimizer.zero_grad()
 
             depth_prediction, seg_prediction = self.model(image)
+
+            # Normalize prediction probabilities in range [0, 1]
+            seg_prediction = F.softmax(seg_prediction, dim=1)
 
             # Compute each task loss individually
             depth_loss_value = self.depth_loss_fn(depth_prediction, gt)
@@ -124,17 +132,23 @@ class Trainer():
             for i, data in enumerate(self.val_loader):
                 t0 = time.time()
                 image, gt, label = self.unpack_and_move(data)
+            
                 data_time = time.time() - t0
 
                 t0 = time.time()
                 inv_depth_prediction, seg_prediction = self.model(image)
                 depth_prediction = self.inverse_depth_norm(inv_depth_prediction)
 
+                # Normalize prediction probabilities in range [0, 1]
+                seg_prediction = F.softmax(seg_prediction, dim=1)
+
                 gpu_time = time.time() - t0
 
                 if self.debug and i==0:
+                    os.makedirs(os.path.join(self.results_pth, 'debug'), exist_ok=True)
                     self.show_images_depth(image, gt, depth_prediction)
                     self.show_images_seg(image, label, seg_prediction)
+                    plt.close()
 
                 # Compute each task loss individually
                 depth_loss_value = self.depth_loss_fn(inv_depth_prediction, self.depth_norm(gt))
@@ -154,7 +168,11 @@ class Trainer():
         avg = average_meter.average()
         current_time = time.strftime('%H:%M', time.localtime())
         average_loss = accumulated_loss / (len(self.val_loader.dataset))
+
+        # Metrics and loss history
         self.val_losses.append(average_loss)
+        self.metric_history.append(avg)
+
         print('{} - Average Validation Loss: {:3.4f}'.format(current_time, average_loss))
 
         print('\n*\n'
@@ -248,40 +266,47 @@ class Trainer():
         exit(0)
 
     def show_images_depth(self, image, gt, pred):
-        import matplotlib.pyplot as plt
         image_np = image[0].cpu().permute(1, 2, 0).numpy()
         gt[0, 0, gt[0,0] == 100.0] = 0.1
-        plt.imshow(image_np)
-        plt.show()
-        plt.imshow(gt[0, 0].cpu())
-        plt.show()
-        plt.imshow(pred[0, 0].detach().cpu())
-        plt.show()
+
+        save_path = os.path.join(self.results_pth, 'debug/depth_debug.png')
+        
+        fig, ax = plt.subplots(1, 3)
+        ax[0].imshow(image_np)
+        ax[0].set_title('Original Image')
+
+        ax[1].imshow(gt[0, 0].detach().cpu())
+        ax[1].set_title('Ground Truth')
+
+        ax[2].imshow(pred[0, 0].detach().cpu())
+        ax[2].set_title('Depth Prediction')
+
+        fig.savefig(save_path)
+
 
     def show_images_seg(self, image, target, pred):
-        import matplotlib.pyplot as plt
         image_np = image[0].cpu().permute(1,2,0).numpy()
-        pred_np = pred[0].cpu().numpy()
+        pred_np = torch.argmax(pred, dim=1)[0].cpu().numpy()
         target_np = target[0].cpu().numpy()
 
         # Get number of classes
-        num_classes = pred_np.shape[1]
+        num_classes = pred.size(1)
 
         # Create color map for classes
         cmap = plt.get_cmap('tab20', num_classes)
 
         # Plot target segmentation
-        fig, ax = plt.subplots()
-        ax.imshow(image_np.squeeze())
+        fig, ax = plt.subplots(1, 3)
+        ax[0].imshow(image_np)
+        ax[0].set_title('Original Image')
 
-        fig, ax = plt.subplots()
-        ax.imshow(target_np.squeeze(), cmap=cmap, vmin=0, vmax=num_classes-1)
+        ax[1].imshow(target_np, cmap=cmap, vmin=0, vmax=num_classes)
+        ax[1].set_title('Ground Truth')
 
-        # Plot prediction segmentation
-        fig, ax = plt.subplots()
-        ax.imshow(pred_np.argmax(axis=1).squeeze(), cmap=cmap, vmin=0, vmax=num_classes-1)
+        ax[2].imshow(pred_np, cmap=cmap, vmin=0, vmax=num_classes)
+        ax[2].set_title('Segmentation Prediction')
 
-        plt.show()
+        fig.savefig(os.path.join(self.results_pth, 'debug/seg_debug.png'))
         
 
     def create_logs(self, args):
@@ -294,6 +319,14 @@ class Trainer():
 
         # Create directory for saving training checkpoints
         os.makedirs(self.checkpoint_pth, exist_ok=True)
+
+    def save_results(self):
+        # Save plot of loss evolution during training
+        plt.plot(self.val_losses)
+        plt.savefig(os.path.join(self.results_pth, 'training_losses.png'))
+
+        with open(os.path.join(self.results_pth, 'metrics.pkl'), 'wb') as f:
+            pickle.dump(self.metric_history, f)
 
 
 def debug(test):

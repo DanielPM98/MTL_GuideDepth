@@ -3,8 +3,9 @@ import os
 
 import torch
 import torchvision
-import matplotlib.pyplot as plt
 import numpy as np
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
 
 from data import datasets
 from model import loader
@@ -57,14 +58,15 @@ class Evaluator():
         self.model.to(self.device)
 
         self.test_loader = datasets.get_dataloader(args.dataset,
-                                                 path=args.test_path,
+                                                #  path=args.test_path,
+                                                 path=args.data_path,
                                                  split='test',
                                                  batch_size=1,
                                                  augmentation=args.eval_mode,
                                                  resolution=args.resolution,
                                                  workers=args.num_workers)
 
-        self.downscale_image = torchvision.transforms.Resize(self.resolution) #To Model resolution
+        self.scale_image = torchvision.transforms.Resize(self.resolution) #To Model resolution
 
         self.to_tensor = transforms.ToTensor(test=True, maxDepth=self.maxDepth)
 
@@ -72,81 +74,94 @@ class Evaluator():
         self.visualize_images = [0, 1, 2, 3, 4, 5,
                                  100, 101, 102, 103, 104, 105,
                                  200, 201, 202, 203, 204, 205,
-                                 300, 301, 302, 303, 304, 305,
-                                 400, 401, 402, 403, 404, 405,
-                                 500, 501, 502, 503, 504, 505,
-                                 600, 601, 602, 603, 604, 605]
+                                 300, 301, 302, 303, 304, 305,]
 
     def evaluate(self):
         self.model.eval()
         average_meter = AverageMeter()
-        for i, data in enumerate(self.test_loader):
-            # TODO: IMPLEMENT SEGMENTATION IN MODEL AND EVALUATION
-            t0 = time.time()
-            image, depth_gt, label_gt = data
-            packed_data = {'image': image[0], 'depth':depth_gt[0], 'label': label_gt[0]}
-            data = self.to_tensor(packed_data)
-            image, depth_gt, label_gt = self.unpack_and_move(data)
-            image = image.unsqueeze(0) # shape [channels, w, h]
-            print(depth_gt.shape)
-            depth_gt = depth_gt.unsqueeze(0) # shape [?, w, h]
+        with torch.no_grad():
+            for i, data in enumerate(self.test_loader):
+                t0 = time.time()
+                image, depth_gt, label_gt = self.unpack_and_move(data)
+                
+                depth_gt = depth_gt.unsqueeze(0) # shape [1, 1, w, h]
+                label_gt = label_gt.unsqueeze(0)
 
-            image_flip = torch.flip(image, [3])
-            depth_gt_flip = torch.flip(depth_gt, [3])
-            if self.eval_mode == 'alhashim':
-                # For model input
-                image = self.downscale_image(image)
-                image_flip = self.downscale_image(image_flip)
+                # image = image.unsqueeze(0) # shape [channels, w, h]
 
-            data_time = time.time() - t0
+                image_flip = torch.flip(image, [3])
+                depth_gt_flip = torch.flip(depth_gt, [3])
+                label_gt_flip = torch.flip(label_gt, [3])
+        
+                if self.eval_mode == 'alhashim':
+                    # For model input
+                    image = self.scale_image(image)
+                    image_flip = self.scale_image(image_flip)
 
-            t0 = time.time()
+                data_time = time.time() - t0
 
-            inv_prediction = self.model(image)
-            prediction = self.inverse_depth_norm(inv_prediction)
+                t0 = time.time()
+                print(image.dtype)
+                inv_depth_prediction, seg_prediction = self.model(image)
+                depth_prediction = self.inverse_depth_norm(inv_depth_prediction)
 
-            inv_prediction_flip = self.model(image_flip)
-            prediction_flip = self.inverse_depth_norm(inv_prediction_flip)
 
-            gpu_time = time.time() - t0
+                inv_depth_prediction_flip, seg_prediction_flip = self.model(image_flip)
+                depth_prediction_flip = self.inverse_depth_norm(inv_depth_prediction_flip)
 
-            if self.eval_mode == 'alhashim':
-                upscale_depth = torchvision.transforms.Resize(depth_gt.shape[-2:]) #To GT res
+                # Apply softmax for normalization of probabilities in range [0, 1]
+                seg_prediction = F.softmax(seg_prediction, dim=1)
+                seg_prediction_flip = F.softmax(seg_prediction_flip, dim=1)
 
-                prediction = upscale_depth(prediction)
-                prediction_flip = upscale_depth(prediction_flip)
+                gpu_time = time.time() - t0
 
-                if i in self.visualize_images:
-                    self.save_image_results(image, depth_gt, prediction, i)
+                if self.eval_mode == 'alhashim':
+                    scale_depth = torchvision.transforms.Resize(depth_gt.shape[-2:]) #To GT res
 
-                gt = depth_gt[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
-                gt_flip = depth_gt_flip[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
-                prediction = prediction[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
-                prediction_flip = prediction_flip[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
+                    prediction = scale_depth(prediction)
+                    prediction_flip = scale_depth(prediction_flip)
 
-            # TODO: IMPLEMENT RESULTS FOR SEGEMENTATION
+                    if i in self.visualize_images:
+                        self.save_image_results(image, depth_gt, prediction, i)
 
-            result = Result()
-            result.evaluate_depth(prediction.data, depth_gt.data)
-            average_meter.update(result, gpu_time, data_time, image.size(0))
+                    # Crop images to match alhashim's paper 
+                    depth_gt = depth_gt[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
+                    depth_gt_flip = depth_gt_flip[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
+                    depth_prediction = depth_prediction[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
+                    depth_prediction_flip = depth_prediction_flip[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
 
-            result_flip = Result()
-            result_flip.evaluate(prediction_flip.data, depth_gt_flip.data)
-            average_meter.update(result_flip, gpu_time, data_time, image.size(0))
+                    label_gt = label_gt[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
+                    label_gt_flip = label_gt_flip[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
+                    seg_prediction = seg_prediction[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
+                    seg_prediction_flip = seg_prediction_flip[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
+                
+
+                result = Result()
+                result.evaluate_depth(depth_prediction.data, depth_gt.data)
+                result.evaluate_segmentation(seg_prediction.data, label_gt.data)
+                average_meter.update(result, gpu_time, data_time, image.size(0))
+
+                result_flip = Result()
+                result_flip.evaluate(prediction_flip.data, depth_gt_flip.data)
+                average_meter.update(result_flip, gpu_time, data_time, image.size(0))
 
         #Report 
         avg = average_meter.average()
         current_time = time.strftime('%H:%M', time.localtime())
+        print(f'{current_time} - Evaluation metrics:')
         self.save_results(avg)
         print('\n*\n'
-              'RMSE={average.rmse:.3f}\n'
-              'MAE={average.mae:.3f}\n'
-              'Delta1={average.delta1:.3f}\n'
-              'Delta2={average.delta2:.3f}\n'
-              'Delta3={average.delta3:.3f}\n'
-              'REL={average.absrel:.3f}\n'
-              'Lg10={average.lg10:.3f}\n'
-              't_GPU={time:.3f}\n'.format(
+              'RMSE = {average.rmse:.3f}\n'
+              'MAE = {average.mae:.3f}\n'
+              'Delta1 = {average.delta1:.3f}\n'
+              'Delta2 = {average.delta2:.3f}\n'
+              'Delta3 = {average.delta3:.3f}\n'
+              'REL = {average.absrel:.3f}\n'
+              'Lg10 = {average.lg10:.3f}\n'
+              '\nMean IoU = {average.mIoU:.3f}\n'
+              'MAE = {average.mMAE:.3f}\n'
+              'Pixel Accuracy = {average.px_acc}\n\n'
+              't_GPU = {time:.3f}\n'.format(
               average=avg, time=avg.gpu_time))
 
     def save_results(self, average):

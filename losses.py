@@ -154,7 +154,7 @@ class Seg_Loss:
         # # Reassign label -1 of uncategorize to highest value of category (14 in this case)
         # target[target == -1] = self.num_classes
 
-        pred = F.softmax(pred, dim=1) # Normalize the probability distribution over the 14 classes
+        # pred = F.softmax(pred, dim=1) # Normalize the probability distribution over the 14 classes
 
         # pred = pred.view(-1, self.num_classes)
         # target = target.view(-1)
