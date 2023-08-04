@@ -67,6 +67,10 @@ def get_args():
                         type=str,
                         help='path to save results to',
                         default='./logs')
+    parser.add_argument('--name',
+                        type=str,
+                        help='Name of the testing file',
+                        default='default')
 
     #Optimization
     parser.add_argument('--batch_size',
@@ -108,7 +112,7 @@ def main():
     if args.train:
         model_trainer = Trainer(args)
         model_trainer.train()
-        args.weights_path = os.path.join(args.save_results, 'best_model.pth')
+        args.weights_path = os.path.join(args.save_results, f'{args.name}_results/train/best_model.pth')
 
     if args.evaluate:
         evaluation_module = Evaluator(args)

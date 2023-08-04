@@ -215,8 +215,9 @@ class Trainer():
 
 
     def save_model(self):
+        list_checkpoints = os.listdir(self.checkpoint_pth)
         best_checkpoint_pth = os.path.join(self.checkpoint_pth,
-                                      'checkpoint_19.pth')
+                                      f'checkpoint_{self.max_epochs - 1}.pth')
         best_model_pth = os.path.join(self.results_pth,
                                      'best_model.pth')
 
@@ -310,7 +311,7 @@ class Trainer():
         
 
     def create_logs(self, args):
-        name = os.path.join(args.save_results, f'{args.model}_results')
+        name = os.path.join(args.save_results, f'{args.name}_results')
         self.checkpoint_pth = os.path.join(name, args.save_checkpoint)
         self.results_pth = os.path.join(name, 'train')
 
@@ -322,8 +323,11 @@ class Trainer():
 
     def save_results(self):
         # Save plot of loss evolution during training
-        plt.plot(self.val_losses)
+        fig = plt.figure()
+        plt.plot(range(len(self.val_losses)), self.val_losses)
         plt.savefig(os.path.join(self.results_pth, 'training_losses.png'))
+
+        plt.close()
 
         with open(os.path.join(self.results_pth, 'metrics.pkl'), 'wb') as f:
             pickle.dump(self.metric_history, f)

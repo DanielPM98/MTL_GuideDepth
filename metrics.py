@@ -66,7 +66,7 @@ class Result(object):
         self.data_time, self.gpu_time = data_time, gpu_time
 
     def evaluate_depth(self, output, target):
-        # Adjust for 0 values in tensors
+        # Adjust for 0 values in tensors # TODO: CHECK WITH LAZAROS?
         # output[output == 0] = self.eps
         # target[target == 0] = self.eps
 
@@ -211,6 +211,7 @@ def iou_metric(pred: torch.Tensor, target: torch.Tensor, average: str='mean') ->
 
     pred = pred.contiguous().view(-1)
     target = target.contiguous().view(-1)
+
 
     # Calculate the intersection and union over each class
     for c in range(num_classes+1):

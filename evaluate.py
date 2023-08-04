@@ -4,8 +4,9 @@ import os
 import torch
 import torchvision
 import numpy as np
-import torch.nn.functional as F
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
+from torchvision.transforms import InterpolationMode
 
 from data import datasets
 from model import loader
@@ -80,14 +81,15 @@ class Evaluator():
         self.model.eval()
         average_meter = AverageMeter()
         with torch.no_grad():
-            for i, data in enumerate(self.test_loader):
+            for i, data in enumerate(self.test_loader.dataset):
                 t0 = time.time()
+
+                data = self.to_tensor(data)
                 image, depth_gt, label_gt = self.unpack_and_move(data)
                 
+                image = image.unsqueeze(0) # shape [channels, w, h]
                 depth_gt = depth_gt.unsqueeze(0) # shape [1, 1, w, h]
                 label_gt = label_gt.unsqueeze(0)
-
-                # image = image.unsqueeze(0) # shape [channels, w, h]
 
                 image_flip = torch.flip(image, [3])
                 depth_gt_flip = torch.flip(depth_gt, [3])
@@ -101,10 +103,8 @@ class Evaluator():
                 data_time = time.time() - t0
 
                 t0 = time.time()
-                print(image.dtype)
                 inv_depth_prediction, seg_prediction = self.model(image)
                 depth_prediction = self.inverse_depth_norm(inv_depth_prediction)
-
 
                 inv_depth_prediction_flip, seg_prediction_flip = self.model(image_flip)
                 depth_prediction_flip = self.inverse_depth_norm(inv_depth_prediction_flip)
@@ -117,12 +117,16 @@ class Evaluator():
 
                 if self.eval_mode == 'alhashim':
                     scale_depth = torchvision.transforms.Resize(depth_gt.shape[-2:]) #To GT res
+                    scale_seg = torchvision.transforms.Resize(label_gt.shape[-2:], interpolation=InterpolationMode.NEAREST)
 
-                    prediction = scale_depth(prediction)
-                    prediction_flip = scale_depth(prediction_flip)
+                    depth_prediction = scale_depth(depth_prediction)
+                    depth_prediction_flip = scale_depth(depth_prediction_flip)
+
+                    seg_prediction = scale_seg(seg_prediction)
+                    seg_prediction_flip = scale_seg(seg_prediction_flip)
 
                     if i in self.visualize_images:
-                        self.save_image_results(image, depth_gt, prediction, i)
+                        self.save_image_results(image, depth_gt, depth_prediction, i)
 
                     # Crop images to match alhashim's paper 
                     depth_gt = depth_gt[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
@@ -142,7 +146,8 @@ class Evaluator():
                 average_meter.update(result, gpu_time, data_time, image.size(0))
 
                 result_flip = Result()
-                result_flip.evaluate(prediction_flip.data, depth_gt_flip.data)
+                result_flip.evaluate_depth(depth_prediction_flip.data, depth_gt_flip.data)
+                result_flip.evaluate_segmentation(seg_prediction_flip.data, label_gt_flip.data)
                 average_meter.update(result_flip, gpu_time, data_time, image.size(0))
 
         #Report 
@@ -210,7 +215,7 @@ class Evaluator():
         exit(0)
 
     def create_logs(self, args):
-        name = os.path.join(args.save_results, f'{args.model}_results')
+        name = os.path.join(args.save_results, f'{args.name}_results')
         self.results_pth = os.path.join(name, 'test')
 
         # Create directory for training results output
