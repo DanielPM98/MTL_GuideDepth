@@ -25,6 +25,16 @@ class Trainer():
 
         self.create_logs(args)
 
+        self.task_num = 2
+        if args.mode == 'depth':
+            main_task = 0
+            assert args.strategy == 'STW'
+        elif args.mode == 'seg':
+            main_task = 1
+            assert args.strategy == 'STW'
+        else:
+            main_task = None
+
         self.epoch = 0
         self.val_losses = []
         self.max_epochs = args.num_epochs
@@ -65,7 +75,7 @@ class Trainer():
 
         self.seg_loss_fn = Seg_Loss(self.train_loader.dataset.num_classes, device=self.device)
 
-        self.weighting_strategy = strategies.choose_strategy(args.strategy)
+        self.weighting_strategy = strategies.choose_strategy(args.strategy, self.task_num, main_task)
 
         #Load Checkpoint
         if args.load_checkpoint != '':
@@ -108,7 +118,8 @@ class Trainer():
             seg_loss_value = self.seg_loss_fn(seg_prediction, label)
 
             # Compute weighted loss
-            loss_value = self.weighting_strategy([depth_loss_value, seg_loss_value])
+            losses = torch.stack((depth_loss_value, seg_loss_value))
+            loss_value = self.weighting_strategy.evaluate(losses)
 
             loss_value.backward() 
 
@@ -155,7 +166,8 @@ class Trainer():
                 seg_loss_value = self.seg_loss_fn(seg_prediction, label)
 
                 # Compute weighted loss
-                loss_value = self.weighting_strategy([depth_loss_value, seg_loss_value])
+                losses = torch.stack((depth_loss_value, seg_loss_value))
+                loss_value = self.weighting_strategy.evaluate(losses)
 
                 accumulated_loss += loss_value.item()
 
@@ -215,7 +227,6 @@ class Trainer():
 
 
     def save_model(self):
-        list_checkpoints = os.listdir(self.checkpoint_pth)
         best_checkpoint_pth = os.path.join(self.checkpoint_pth,
                                       f'checkpoint_{self.max_epochs - 1}.pth')
         best_model_pth = os.path.join(self.results_pth,

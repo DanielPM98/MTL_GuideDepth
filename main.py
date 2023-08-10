@@ -91,9 +91,14 @@ def get_args():
                         default=15)
     parser.add_argument('--strategy',
                         type=str,
-                        choices= ['EW', 'RW'],
+                        choices= ['EW', 'RW', 'UW', 'STW'],
                         default='EW',
                         help= 'Weighting strategies')
+    parser.add_argument('--mode',
+                        type=str,
+                        help='Set model mode: single task or dual',
+                        choices= ['depth', 'seg', 'dual'],
+                        default='dual')
 
     #System
     parser.add_argument('--num_workers',

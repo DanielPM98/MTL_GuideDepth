@@ -72,10 +72,7 @@ class Evaluator():
         self.to_tensor = transforms.ToTensor(test=True, maxDepth=self.maxDepth)
 
 
-        self.visualize_images = [0, 1, 2, 3, 4, 5,
-                                 100, 101, 102, 103, 104, 105,
-                                 200, 201, 202, 203, 204, 205,
-                                 300, 301, 302, 303, 304, 305,]
+        self.visualize_images = [0, 100, 150, 200, 300]
 
     def evaluate(self):
         self.model.eval()
@@ -172,7 +169,7 @@ class Evaluator():
     def save_results(self, average):
         results_file = os.path.join(self.results_pth, 'results.txt')
         with open(results_file, 'w') as f:
-            f.write('RMSE,MAE,REL, RMSE_log,Lg10,Delta1,Delta2,Delta3\n')
+            f.write('RMSE,MAE,REL, RMSE_log,Lg10,Delta1,Delta2,Delta3,mIoU,mMAE,px_acc\n')
             f.write('{average.rmse:.3f}'
                     ',{average.mae:.3f}'
                     ',{average.absrel:.3f}'
@@ -180,7 +177,10 @@ class Evaluator():
                     ',{average.lg10:.3f}'
                     ',{average.delta1:.3f}'
                     ',{average.delta2:.3f}'
-                    ',{average.delta3:.3f}'.format(
+                    ',{average.delta3:.3f}'
+                    ',{average.mIoU:.3f}'
+                    ',{average.mMAE:.3f}'
+                    ',{average.px_acc:.3f}'.format(
                         average=average))
 
 
