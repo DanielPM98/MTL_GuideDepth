@@ -34,7 +34,7 @@ class Result(object):
         self.px_acc = 0
 
         # Limit evaluation
-        self.eps = 1e-8
+        # self.eps = 1e-8
 
     def set_to_worst(self):
         self.irmse, self.imae = np.inf, np.inf
@@ -66,18 +66,19 @@ class Result(object):
         self.data_time, self.gpu_time = data_time, gpu_time
 
     def evaluate_depth(self, output, target):
-        # Adjust for 0 values in tensors # TODO: CHECK WITH LAZAROS?
+        # Adjust for 0 values in tensors 
         # output[output == 0] = self.eps
         # target[target == 0] = self.eps
 
         abs_diff = (output - target).abs()
+        log_diff = torch.masked_select(log10(output) - log10(target), ~torch.isinf(log10(output) - log10(target))) # Filter inf values that might appear
 
         self.mse = float((torch.pow(abs_diff, 2)).mean())
         self.rmse = math.sqrt(self.mse)
         self.mae = float(abs_diff.mean())
-        self.lg10 = float((log10(output) - log10(target)).abs().mean())
-        self.rmse_log = math.sqrt(torch.pow(log10(output) - log10(target), 2).mean())
-        self.absrel = float((abs_diff / target).mean())
+        self.lg10 = float(log_diff.abs().mean())
+        self.rmse_log = math.sqrt((log_diff**2).mean())
+        self.absrel = float(torch.masked_select(abs_diff / target, ~torch.isinf(abs_diff / target)).mean()) # Filter possible inf results 
 
         maxRatio = torch.max(output / target, target / output)
         self.delta1 = float((maxRatio < 1.25).float().mean())
@@ -88,10 +89,16 @@ class Result(object):
 
         inv_output = 1 / output
         inv_target = 1 / target
-        abs_inv_diff = (inv_output - inv_target).abs()
+        abs_inv_diff = torch.masked_select(inv_output - inv_target, ~torch.isinf(inv_output - inv_target)).abs()
         self.irmse = math.sqrt((torch.pow(abs_inv_diff, 2)).mean())
         self.imae = float(abs_inv_diff.mean())
 
+        # print(f'\nAbsolute difference: {torch.min(abs_diff)} ~ {torch.max(abs_diff)}')
+        # print(f'MAE: {self.mae}')
+        # print(f'Log10: {self.lg10}')
+        # print(f'AbsREL: {self.absrel}')
+        # print(f'IRMSE: {self.irmse}')
+        # print(f'IMAE: {self.imae}')
         # print(f'Log10 (substraction): {log10(output) - log10(target)}')
         # print(f'Log10 (target): {torch.pow(log10(output) - log10(target), 2)}')
         # print(f'REL: {(abs_diff / target)}')
@@ -174,8 +181,8 @@ class AverageMeter(object):
             self.sum_imae / self.count,
             self.sum_mse / self.count, 
             self.sum_rmse / self.count, 
-            self.sum_mae / self.count,
             self.sum_rmse_log / self.count, 
+            self.sum_mae / self.count,
             self.sum_absrel / self.count, 
             self.sum_lg10 / self.count,
             self.sum_delta1 / self.count, 
@@ -189,7 +196,6 @@ class AverageMeter(object):
             self.sum_gpu_time / self.count, 
             self.sum_data_time / self.count)
         return avg
-
 
 def iou_metric(pred: torch.Tensor, target: torch.Tensor, average: str='mean') -> torch.Tensor:
     """
