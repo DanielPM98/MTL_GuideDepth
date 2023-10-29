@@ -7,7 +7,7 @@ Code from FastDepth
 """
 import torch
 import numpy as np
-from torchmetrics.classification import MulticlassJaccardIndex, MulticlassAccuracy
+# from torchmetrics.classification import MulticlassJaccardIndex, MulticlassAccuracy
 
 import math
 
@@ -117,7 +117,7 @@ class Result(object):
         pred = torch.argmax(output, dim=1)
 
         self.IoU = iou_metric(output, target, average=None) # Output list of lenght num_classes
-        self.mIoU = self.IoU.mean() # Exclude undefined values from calculation for not present classes
+        self.mIoU = self.IoU[~torch.isnan(self.IoU)].mean() # Exclude undefined values from calculation for not present classes
 
         # Calculate pixel accuracy over a batch
         correct = (pred == target).sum().item()
@@ -207,7 +207,8 @@ def iou_metric(pred: torch.Tensor, target: torch.Tensor, average: str='mean') ->
             target <Tensor>: target tensor. Shape [batch_size, w, h]
 
         Output:
-            ious <Tensor>: IoU metrics for each class
+            ious <Tensor>: IoU metrics for each class. If the class is not present in the target it will
+                                    be assigned NaN and not considered in evaluation.
     """
 
     num_classes = pred.size(1)
@@ -218,11 +219,15 @@ def iou_metric(pred: torch.Tensor, target: torch.Tensor, average: str='mean') ->
     pred = pred.contiguous().view(-1)
     target = target.contiguous().view(-1)
 
-
     # Calculate the intersection and union over each class
-    for c in range(num_classes+1):
+    for c in range(num_classes):
         pred_idx = pred == c
         target_idx = target == c
+
+        # If the class is not present in the image
+        if (target_idx.long().sum()) == 0:
+            ious.append(torch.nan)
+            continue
 
         intersection = (pred_idx[target_idx]).long().sum().cpu()
         union = pred_idx.long().sum().cpu() + target_idx.long().sum().cpu() - intersection
@@ -258,7 +263,7 @@ def pixel_accuracy(pred: torch.Tensor, target: torch.Tensor, average: str='mean'
     target = target.contiguous().view(-1)
 
     # Calculate the intersection and union over each class
-    for c in range(num_classes+1):
+    for c in range(num_classes):
         pred_idx = pred == c
         target_idx = target == c
 

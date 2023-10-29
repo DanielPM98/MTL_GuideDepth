@@ -48,8 +48,8 @@ class NYUv2Dataset(data.Dataset):
         depth = np.load(self.depth_paths[index]) # Depth ground truth [0, 10] (288, 384, 1)
         label = np.load(self.label_paths[index]) # Segmentation map (288, 384)
 
-        # Reassign label -1 of uncategorize to highest value of category (14 in this case)
-        label[label == -1] = self.num_classes
+        # Reassign label -1 of uncategorize to highest value of category (13 in this case, 14th category)
+        label[label == -1] = self.num_classes - 1
 
         sample = {'image': image,
                   'depth': depth.reshape((288,384)),    # Transform to shape (288, 384)

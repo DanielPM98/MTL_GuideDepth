@@ -133,10 +133,15 @@ class Seg_Loss:
         self.num_classes = num_classes
 
         # Assign label weights for calculating the loss. The highest number label will be ignored (in this case 14) as uncategorized
-        label_weights = torch.ones(self.num_classes).to(device)
-        label_weights[self.num_classes-1] = 0
+        # label_weights = torch.ones(self.num_classes).to(device)
+        # label_weights[self.num_classes-1] = 0
 
-        self.loss_fn = nn.CrossEntropyLoss(ignore_index=self.num_classes, weight=label_weights)
+        # Added label weights from data analysis
+        label_weights = torch.Tensor([ 1.7159, 11.6812,  9.7215,  1.7484,  0.6418,  0.4408,  0.4951,  3.7885,
+         2.5581,  1.9729, 11.1400,  0.3180,  1.5640,  0.5633]).to(device)
+
+        # self.loss_fn = nn.CrossEntropyLoss(ignore_index=self.num_classes, weight=label_weights)
+        self.loss_fn = nn.CrossEntropyLoss(weight=label_weights)
 
     def __call__(self, pred, target):
         """

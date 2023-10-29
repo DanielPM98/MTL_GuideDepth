@@ -349,9 +349,11 @@ class DualResNet(nn.Module):
                         self.spp(self.layer5(self.relu(x))),
                         size=[height_output, width_output],
                         mode='bilinear')
+        
+        refined_fp = x + x_ # CHANGED: added refined fp for suppport on output from backbone
 
         x_ = self.final_layer(x + x_)
-        return x_
+        return x_#, refined_fp
 
 
 def DualResNet_Backbone(pretrained=False, features=64):

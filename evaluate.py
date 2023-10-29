@@ -123,7 +123,8 @@ class Evaluator():
                     seg_prediction_flip = scale_seg(seg_prediction_flip)
 
                     if i in self.visualize_images:
-                        self.save_image_results(image, depth_gt, depth_prediction, i)
+                        self.save_image_depth_results(image, depth_gt, depth_prediction, i)
+                        self.save_image_seg_results(image, label_gt, seg_prediction, i)
 
                     # Crop images to match alhashim's paper 
                     depth_gt = depth_gt[:,:, self.crop[0]:self.crop[1], self.crop[2]:self.crop[3]]
@@ -222,7 +223,7 @@ class Evaluator():
         os.makedirs(self.results_pth, exist_ok=True)
 
 
-    def save_image_results(self, image, gt, prediction, image_id):
+    def save_image_depth_results(self, image, gt, prediction, image_id):
         img = image[0].permute(1, 2, 0).cpu()
         gt = gt[0,0].permute(0, 1).cpu()
         prediction = prediction[0,0].permute(0, 1).detach().cpu()
@@ -268,5 +269,43 @@ class Evaluator():
         ax.set_axis_off()
         fig.add_axes(ax)
         ax.imshow(prediction, vmin=vmin, vmax=vmax, cmap=cmap)
+        fig.savefig(save_to_dir)
+        plt.clf()
+
+    def save_image_seg_results(self, image, label, prediction, image_id):
+        img = image[0].permute(1, 2, 0).cpu()
+        label = label[0,0].permute(0, 1).cpu()
+
+        num_classes = prediction.size(1)
+        prediction = torch.argmax(prediction, dim=1)[0].detach().cpu().numpy()
+        
+        # Color map for semantic classes
+        cmap = plt.get_cmap('tab20', num_classes)
+
+        # Plot target segmentation
+        save_to_dir = os.path.join(self.results_pth, 'image_{}.png'.format(image_id))
+        fig = plt.figure(frameon=False)
+        ax = plt.Axes(fig, [0., 0., 1., 1.])
+        ax.set_axis_off()
+        fig.add_axes(ax)
+        ax.imshow(img)
+        fig.savefig(save_to_dir)
+        plt.clf()
+
+        save_to_dir = os.path.join(self.results_pth, 'label_{}.png'.format(image_id))
+        fig = plt.figure(frameon=False)
+        ax = plt.Axes(fig, [0., 0., 1., 1.])
+        ax.set_axis_off()
+        fig.add_axes(ax)
+        ax.imshow(label, cmap=cmap, vmin=0, vmax=num_classes)
+        fig.savefig(save_to_dir)
+        plt.clf()
+
+        save_to_dir = os.path.join(self.results_pth, 'seg_pred_{}.png'.format(image_id))
+        fig = plt.figure(frameon=False)
+        ax = plt.Axes(fig, [0., 0., 1., 1.])
+        ax.set_axis_off()
+        fig.add_axes(ax)
+        ax.imshow(prediction, cmap=cmap, vmin=0, vmax=num_classes)
         fig.savefig(save_to_dir)
         plt.clf()

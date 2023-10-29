@@ -111,7 +111,7 @@ class Trainer():
             depth_prediction, seg_prediction = self.model(image)
 
             # Normalize prediction probabilities in range [0, 1]
-            seg_prediction = F.softmax(seg_prediction, dim=1)
+            # seg_prediction = F.softmax(seg_prediction, dim=1)
 
             # Compute each task loss individually
             depth_loss_value = self.depth_loss_fn(depth_prediction, gt)
@@ -124,6 +124,7 @@ class Trainer():
             loss_value.backward() 
 
             self.optimizer.step()
+            # self.lr_scheduler.step()
 
             accumulated_loss += loss_value.item()
 
@@ -151,7 +152,7 @@ class Trainer():
                 depth_prediction = self.inverse_depth_norm(inv_depth_prediction)
 
                 # Normalize prediction probabilities in range [0, 1]
-                seg_prediction = F.softmax(seg_prediction, dim=1)
+                # seg_prediction = F.softmax(seg_prediction, dim=1)
 
                 gpu_time = time.time() - t0
 

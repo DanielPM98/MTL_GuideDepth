@@ -2,6 +2,7 @@ import os
 import argparse
 
 from training import Trainer
+# from train_baseline import Trainer
 from evaluate import Evaluator
 
 def get_args():
@@ -24,10 +25,6 @@ def get_args():
                         type=str,
                         help='path to train data',
                         default=os.path.join(file_dir, 'dataset'))
-    # parser.add_argument('--test_path',
-    #                     type=str,
-    #                     help='path to test data',
-    #                     default=os.path.join(file_dir, 'kitti_comb'))
     parser.add_argument('--dataset',
                         type=str,
                         help='dataset for training',
