@@ -93,16 +93,6 @@ class Result(object):
         self.irmse = math.sqrt((torch.pow(abs_inv_diff, 2)).mean())
         self.imae = float(abs_inv_diff.mean())
 
-        # print(f'\nAbsolute difference: {torch.min(abs_diff)} ~ {torch.max(abs_diff)}')
-        # print(f'MAE: {self.mae}')
-        # print(f'Log10: {self.lg10}')
-        # print(f'AbsREL: {self.absrel}')
-        # print(f'IRMSE: {self.irmse}')
-        # print(f'IMAE: {self.imae}')
-        # print(f'Log10 (substraction): {log10(output) - log10(target)}')
-        # print(f'Log10 (target): {torch.pow(log10(output) - log10(target), 2)}')
-        # print(f'REL: {(abs_diff / target)}')
-
     def evaluate_segmentation(self, output, target):
         """ 
             Description: 

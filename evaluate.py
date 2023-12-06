@@ -170,7 +170,7 @@ class Evaluator():
     def save_results(self, average):
         results_file = os.path.join(self.results_pth, 'results.txt')
         with open(results_file, 'w') as f:
-            f.write('RMSE,MAE,REL, RMSE_log,Lg10,Delta1,Delta2,Delta3,mIoU,mMAE,px_acc\n')
+            f.write('RMSE,MAE,REL, RMSE_log,Lg10,Delta1,Delta2,Delta3,mIoU,mMAE,px_acc,t_gpu\n')
             f.write('{average.rmse:.3f}'
                     ',{average.mae:.3f}'
                     ',{average.absrel:.3f}'
@@ -181,7 +181,8 @@ class Evaluator():
                     ',{average.delta3:.3f}'
                     ',{average.mIoU:.3f}'
                     ',{average.mMAE:.3f}'
-                    ',{average.px_acc:.3f}'.format(
+                    ',{average.px_acc:.3f}'
+                    ',{average.gpu_time:.3f}'.format(
                         average=average))
 
 

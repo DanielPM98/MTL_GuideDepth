@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
+from torch import autograd
 
 from model import loader
 from data import datasets
@@ -84,8 +85,10 @@ class Trainer():
         self.metric_history = []
 
     def train(self):
+        # self.best_loss = 1000
         torch.cuda.empty_cache()
         self.start_time = time.time()
+
         for self.epoch in range(self.epoch, self.max_epochs):
             current_time = time.strftime('%H:%M', time.localtime())
             print('{} - Epoch {}'.format(current_time, self.epoch))
@@ -104,14 +107,12 @@ class Trainer():
         self.model.train()
         accumulated_loss = 0.0
 
+        # with autograd.detect_anomaly():
         for i, data in enumerate(self.train_loader):
             image, gt, label = self.unpack_and_move(data)
             self.optimizer.zero_grad()
 
             depth_prediction, seg_prediction = self.model(image)
-
-            # Normalize prediction probabilities in range [0, 1]
-            # seg_prediction = F.softmax(seg_prediction, dim=1)
 
             # Compute each task loss individually
             depth_loss_value = self.depth_loss_fn(depth_prediction, gt)
@@ -187,7 +188,11 @@ class Trainer():
         self.metric_history.append(avg)
 
         print('{} - Average Validation Loss: {:3.4f}'.format(current_time, average_loss))
-
+        # if average_loss < self.best_loss:
+        #     self.best_loss = average_loss
+        #     self.save_checkpoint()
+        #     self.best_epoch = self.epoch
+            
         print('\n*\n'
               'RMSE = {average.rmse:.3f}\n'
               'MAE = {average.mae:.3f}\n'
@@ -229,7 +234,7 @@ class Trainer():
 
     def save_model(self):
         best_checkpoint_pth = os.path.join(self.checkpoint_pth,
-                                      f'checkpoint_{self.max_epochs - 1}.pth')
+                                      f'checkpoint_{self.max_epochs -1}.pth')
         best_model_pth = os.path.join(self.results_pth,
                                      'best_model.pth')
 
@@ -346,6 +351,5 @@ class Trainer():
 
 
 def debug(test):
-    print(test)
-    print('===== Test Passed =====')
+    print(f'===== {test} =====')
     exit(0)
