@@ -1,1 +1,0 @@
-python main.py --train --data_path ./dataset/split_nyuv2/ --resolution full --model GuideDepth --strategy RW --batch_size 8 --num_epochs 1 --name default
